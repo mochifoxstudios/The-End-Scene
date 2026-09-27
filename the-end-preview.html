@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>The End — Preview</title>
+<style>
+    html, body { margin: 0; height: 100%; background: #04060c; color: #e8f0ff;
+                 font-family: "Courier New", ui-monospace, monospace; }
+    main { min-height: 100%; display: flex; flex-direction: column; align-items: center;
+           justify-content: center; gap: 18px; padding: 24px 16px; box-sizing: border-box; text-align: center; }
+    h1 { margin: 0; font-size: 13px; letter-spacing: .3em; color: rgba(68,170,220,.9); font-weight: 400; }
+    .card { width: min(320px, 100%); border: 1px solid rgba(232,240,255,.25); border-radius: 8px;
+            padding: 20px; background: rgba(255,255,255,.03); }
+    .door { width: 56px; height: 110px; margin: 0 auto 14px; background: #e9edf5; border-radius: 2px;
+            position: relative; box-shadow: 0 0 40px rgba(232,240,255,.35); }
+    .door::after { content: ""; position: absolute; right: 8px; top: 54%; width: 5px; height: 5px;
+                   border-radius: 50%; background: #9aa3b5; }
+    .name { font-size: 18px; letter-spacing: .2em; }
+    .desc { font-size: 12px; opacity: .6; margin: 8px 0 16px; line-height: 1.6; }
+    label { display: block; text-align: left; font-size: 11px; letter-spacing: .14em; opacity: .7; margin: 10px 0 4px; }
+    input, select { width: 100%; box-sizing: border-box; background: #000; color: #fff; font: inherit;
+                    border: 1px solid rgba(68,170,220,.4); border-radius: 4px; padding: 8px; }
+    button { margin-top: 18px; width: 100%; background: #fff; color: #000; border: 0; border-radius: 4px;
+             font: inherit; font-weight: 700; letter-spacing: .2em; padding: 12px; cursor: pointer; }
+    button:hover { box-shadow: 0 0 24px rgba(255,255,255,.5); }
+    .cost { font-size: 11px; opacity: .5; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+    <h1>SHOP · FINAL ITEM</h1>
+    <div class="card">
+        <div class="door" aria-hidden="true"></div>
+        <div class="name">THE END</div>
+        <div class="desc">Beyond this point there is only silence. Are you sure you want to finish?</div>
+        <label for="nm">OPERATOR NAME</label>
+        <input id="nm" value="MOCHI" maxlength="24">
+        <label for="rt">CONDUCT ROUTE</label>
+        <select id="rt">
+            <option value="">— no opinion —</option>
+            <option value="tend">TEND</option>
+            <option value="extract">EXTRACT</option>
+            <option value="administer">ADMINISTER</option>
+        </select>
+        <button id="buy">BUY</button>
+        <div class="cost">1.00e34 energy</div>
+    </div>
+</main>
+<script src="the-end.js"></script>
+<script>
+    document.getElementById('buy').addEventListener('click', () => {
+        TheEnd.play({
+            name:  document.getElementById('nm').value,
+            route: document.getElementById('rt').value,
+            stats: [
+                ['ALL-TIME HIGH ENERGY', '1.00e34'],
+                ['TOTAL CLICKS',         '184,302'],
+                ['PRESTIGE COUNT',       '14×'],
+                ['BIRDS CAUGHT',         '611'],
+            ],
+            onNextCycle() {},
+            onRest() {},
+        });
+    });
+</script>
+</body>
+</html>
