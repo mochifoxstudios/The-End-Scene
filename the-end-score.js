@@ -268,13 +268,14 @@
         const players = [];
         let current = null, muted = false;
 
+        /* Equal-power curves: the sum of an outgoing and an incoming cue stays
+           level through the whole crossfade, so there is no dip in the middle. */
+        const CURVE = 64;
+        const curveIn = new Float32Array(CURVE).map((_, i) => Math.sin(i / (CURVE - 1) * Math.PI / 2));
         function makePlayer(name, t, fade) {
             const cue = CUES[name];
             const fades = [mk(0), mk(0), mk(0)];
-            fades.forEach(g => {
-                g.gain.setValueAtTime(0.0001, t);
-                g.gain.exponentialRampToValueAtTime(1, t + Math.max(0.05, fade));
-            });
+            fades.forEach(g => g.gain.setValueCurveAtTime(curveIn, t, Math.max(0.05, fade)));
             fades[0].connect(musicBus); fades[1].connect(revIn); fades[2].connect(dlyIn);
             const dry = mk(cue.vol || 1); dry.connect(fades[0]);
             const rev = mk(1); rev.connect(fades[1]);
@@ -286,9 +287,10 @@
         function fadeOutPlayer(p, sec) {
             const now = ctx.currentTime;
             p.fades.forEach(g => {
+                const v0 = g.gain.value;
                 g.gain.cancelScheduledValues(now);
-                g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), now);
-                g.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.03, sec));
+                const out = new Float32Array(CURVE).map((_, i) => v0 * Math.cos(i / (CURVE - 1) * Math.PI / 2));
+                g.gain.setValueCurveAtTime(out, now, Math.max(0.05, sec));
             });
             p.stopAt = now + sec;
         }
@@ -311,6 +313,39 @@
             }
         }
         const pumpTimer = setInterval(pump, 25);
+
+        /* ── THE BED ─────────────────────────────────────────────────────────
+           One continuous voice under the whole finale that never stops: two
+           detuned saws and a sub through a slowly breathing low-pass, plus
+           filtered air. Scenes never switch it, they GLIDE it to a new pitch,
+           brightness and level, so every cut in the music is bridged. */
+        const bed = (() => {
+            const out = mk(0), lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass'; lp.frequency.value = 260; lp.Q.value = 0.7;
+            lp.connect(out); out.connect(master); send(out, revIn, 0.35);
+            const oscs = [[1, 'sawtooth', 0, 0.5], [1, 'sawtooth', 9, 0.5], [0.5, 'sine', 0, 0.9]].map(([k, type, det, v]) => {
+                const o = ctx.createOscillator(), g = mk(v);
+                o.type = type; o.frequency.value = 36.7 * k; o.detune.value = det;
+                o.connect(g); g.connect(lp); o.start();
+                return { o, k };
+            });
+            const lfo = ctx.createOscillator(), lfoG = mk(60);
+            lfo.frequency.value = 0.07; lfo.connect(lfoG); lfoG.connect(lp.frequency); lfo.start();
+            const air = ctx.createBufferSource(); air.buffer = noiseBuf; air.loop = true;
+            const airF = ctx.createBiquadFilter(), airG = mk(0);
+            airF.type = 'bandpass'; airF.frequency.value = 600; airF.Q.value = 0.6;
+            air.connect(airF); airF.connect(airG); airG.connect(master); send(airG, revIn, 0.5); air.start();
+            return {
+                set(o, glide) {
+                    const now = ctx.currentTime, tc = Math.max(0.05, (glide === undefined ? 4 : glide) / 3);
+                    if (o.f) oscs.forEach(x => x.o.frequency.setTargetAtTime(o.f * x.k, now, tc));
+                    if (o.cut) lp.frequency.setTargetAtTime(o.cut, now, tc);
+                    if (o.vol !== undefined) out.gain.setTargetAtTime(o.vol, now, tc);
+                    if (o.air !== undefined) airG.gain.setTargetAtTime(o.air, now, tc);
+                    if (o.airF) airF.frequency.setTargetAtTime(o.airF, now, tc);
+                },
+            };
+        })();
 
         // ── Cues ────────────────────────────────────────────────────────────
         const CUES = {
@@ -483,17 +518,44 @@
                 [74, 78, 81, 86].forEach(n => bell(FX, t + 1.2, M(n), 2.6, { ratio: 3.5, idx: 1.5, vol: 0.045, rev: 0.8, echo: 0.3 }));
             },
             /* Scene transitions: each scene arrives on its own sound, under the crossfade. */
+            /* The vats go dark: the city's power winding down, relays letting go
+               one district at a time, the mains hum dying with it. */
+            powerDown(t) {
+                tone(FX, t, 220, 3.2, { type: 'sawtooth', lp: 900, sus: true, a: 0.2, r: 1.2, glide: 0.18, gt: 3.2, vol: 0.045, rev: 0.5 });
+                tone(FX, t, 100, 3.5, { type: 'sine', sus: true, a: 0.05, r: 1.5, glide: 0.5, gt: 3.5, vol: 0.05, rev: 0.2 });
+                for (let k = 0; k < 7; k++) wood(FX, t + 0.15 + k * 0.32 + Math.random() * 0.1, 900 - k * 70, { vol: 0.03 - k * 0.003, rev: 0.4, pan: Math.random() * 1.6 - 0.8 });
+            },
+            /* The suns go out: a long breath in, the void opening under the music. */
+            voidOpen(t) {
+                noise(FX, t, 5, { type: 'bandpass', f: 1800, f2: 300, ft: 5, q: 1.5, sus: true, a: 2.5, r: 2.5, vol: 0.035, rev: 0.8 });
+                swell(FX, t, 4, [45, 52, 57], { vol: 0.05, lp: 500 });
+            },
+            /* The bird arrives: air, and one glass note on the side it comes from. */
+            birdArrive(t, pan) {
+                noise(FX, t, 2, { type: 'highpass', f: 2500, f2: 6000, ft: 2, sus: true, a: 1.2, r: 1.5, vol: 0.02, pan: pan || 0, rev: 0.8 });
+                bell(FX, t + 0.8, M(93), 3.5, { ratio: 2.76, idx: 1, vol: 0.03, rev: 0.9, echo: 0.4, pan: pan || 0 });
+            },
             toRegistry(t) {
-                for (let k = 0; k < 8; k++) wood(FX, t + k * 0.06, 2600 - k * 140, { vol: 0.018, rev: 0.3, pan: k % 2 ? 0.5 : -0.5 });
-                swell(FX, t, 1.4, [60, 61, 67], { vol: 0.05, lp: 900 });
+                swell(FX, t, 1.3, [60, 61, 67], { vol: 0.05, lp: 900 });
+                for (let k = 0; k < 8; k++) wood(FX, t + 1.2 + k * 0.07, 2600 - k * 140, { vol: 0.016, rev: 0.3, pan: k % 2 ? 0.5 : -0.5 });
             },
             toChair(t) {
                 tone(FX, t, M(62), 1.6, { type: 'triangle', lp: 1200, sus: true, a: 0.05, r: 0.6, glide: 0.5, gt: 1.6, vol: 0.05, rev: 0.6 });
                 noise(FX, t, 1.8, { type: 'lowpass', f: 1400, f2: 150, vol: 0.05, rev: 0.6 });
             },
+            /* The registry lets go of its rows: a cluster falling away. */
+            registryOut(t) {
+                swell(FX, t, 1.6, [48, 49, 55], { vol: 0.045, lp: 700 });
+                noise(FX, t, 2.4, { type: 'lowpass', f: 2400, f2: 200, sus: true, a: 1.2, r: 1.2, vol: 0.03, rev: 0.7 });
+            },
             toDoor(t) {
                 noise(FX, t, 3, { type: 'lowpass', f: 8000, f2: 300, vol: 0.07, rev: 0.9 });
                 bell(FX, t + 0.4, M(86), 3, { ratio: 3.5, idx: 1, vol: 0.03, rev: 0.9, echo: 0.3 });
+            },
+            /* The title breaks into dust: a shimmer rising as it drifts up. */
+            dust(t) {
+                noise(FX, t, 4, { type: 'highpass', f: 5000, f2: 9000, ft: 4, sus: true, a: 1.5, r: 2, vol: 0.018, rev: 0.9 });
+                for (let k = 0; k < 6; k++) bell(FX, t + 0.4 + k * 0.45, M(dg(86, SC.major, [0, 2, 4, 7, 9, 11][k])), 2, { ratio: 2.76, idx: 0.8, vol: 0.018, rev: 0.9, pan: k % 2 ? 0.6 : -0.6 });
             },
             toDawn(t) {
                 [74, 78, 81, 86, 90].forEach((n, i) => bell(FX, t + 0.3 + i * 0.09, M(n), 2.2, { ratio: 2, idx: 1, vol: 0.035, rev: 0.7, echo: 0.3 }));
@@ -511,15 +573,18 @@
 
         return {
             resume() { if (ctx.state === 'suspended') ctx.resume(); },
-            cue(name, fade) {
+            /* Crossfade to a cue. The outgoing cue can take longer to leave than
+               the new one takes to arrive (`fadeOut`), so the two overlap. */
+            cue(name, fadeIn, fadeOut) {
                 if (!CUES[name] || (current && current.name === name)) return;
-                const t = ctx.currentTime + 0.05, f = fade === undefined ? 2 : fade;
-                if (current) fadeOutPlayer(current, f);
-                current = makePlayer(name, t, f);
+                const t = ctx.currentTime + 0.05, fi = fadeIn === undefined ? 3 : fadeIn;
+                if (current) fadeOutPlayer(current, fadeOut === undefined ? fi * 1.5 : fadeOut);
+                current = makePlayer(name, t, fi);
                 const echo = (current.cue.echoSteps || 3) * current.sd;
-                dly.delayTime.setTargetAtTime(Math.min(2.4, echo), ctx.currentTime, 0.3);
+                dly.delayTime.setTargetAtTime(Math.min(2.4, echo), ctx.currentTime, 1.5);
                 players.push(current);
             },
+            bed(o, glide) { try { bed.set(o, glide); } catch (e) {} },
             hit(name, ...args) {
                 if (HITS[name]) try { HITS[name](ctx.currentTime + 0.02, ...args); } catch (e) { console.warn('[TheEndScore]', name, e); }
             },

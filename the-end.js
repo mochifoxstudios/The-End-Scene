@@ -75,7 +75,21 @@
     let onKeyRef = null, onResizeRef = null;
 
     const sfx = (n, ...a) => { if (score && speaking) score.hit(n, ...a); };
-    const music = (n, f) => { if (score && speaking) score.cue(n, f); };
+    const music = (n, fin, fout) => { if (score && speaking) score.cue(n, fin, fout); };
+    /* The bed: one drone under the whole finale that each scene glides, never cuts. */
+    const bed = (o, glide) => { if (score && speaking) score.bed(o, glide); };
+    const BED = {
+        spend:    { f: 36.7, cut: 260, vol: 0.05, air: 0.006, airF: 500 },
+        unmake:   { f: 41.2, cut: 600, vol: 0.06, air: 0.014, airF: 900 },
+        dark:     { f: 41.2, cut: 360, vol: 0.055, air: 0.02, airF: 600 },
+        void:     { f: 27.5, cut: 230, vol: 0.07, air: 0.035, airF: 420 },
+        registry: { f: 32.7, cut: 320, vol: 0.05, air: 0.012, airF: 1800 },
+        chair:    { f: 36.7, cut: 240, vol: 0.05, air: 0.01, airF: 300 },
+        white:    { f: 36.7, cut: 1400, vol: 0.06, air: 0.03, airF: 3000 },
+        door:     { f: 36.7, cut: 500, vol: 0.05, air: 0.01, airF: 800 },
+        open:     { f: 73.4, cut: 900, vol: 0.04, air: 0.004, airF: 1200 },
+        dawn:     { f: 73.4, cut: 700, vol: 0.03, air: 0, airF: 1200 },
+    };
     const kick = n => { if (!reduced && speaking) shake = Math.max(shake, n); };
     const flashTo = a => { if (!reduced && speaking) flash = Math.max(flash, a); };
     const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -459,7 +473,7 @@
         return {
             name: 'lastclick', xfade: 1.2,
             resize() { if (builtW) build(); },
-            enter() { build(); music('spend', 3); caption('One purchase left. Spend it.'); },
+            enter() { build(); music('spend', 3); bed(BED.spend, 3); caption('One purchase left. Spend it.'); },
             click() { if (this.t > 1.2) spend.call(this); },
             draw(t, dt) {
                 const cx = W / 2, cy = btnY(), r = R();
@@ -559,7 +573,7 @@
                     sfx('shatter'); kick(22); flashTo(0.75);
                     fx.burst(cx, cy, 260, { vmin: 2, vmax: 14, decay: 0.0018, size: 3.5, drag: 0.97 });
                     fx.ring(cx, cy, 4, 18, 1, PALE);
-                    music('unmake', 0.8);
+                    music('unmake', 0.8, 2.5); bed(BED.unmake, 1);
                 }
                 fx.draw(k > 5 ? pull * 1.6 : 0, cx, H / 2);
 
@@ -572,11 +586,13 @@
                 if (k > 15.6) { ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillRect(W / 2 - 1, H / 2 - 1, 2, 2); }
 
                 if (k >= 0) {
-                    if (at(this, finalT + 2.4)) caption('Down in the City Nexus, the vats go dark.', 3800);
-                    if (at(this, finalT + 6.8)) caption('The suns go out. On schedule.', 3600);
+                    if (at(this, finalT + 2.4)) { caption('Down in the City Nexus, the vats go dark.', 3800); sfx('powerDown'); bed(BED.dark, 4); }
+                    if (at(this, finalT + 6.8)) {
+                        caption('The suns go out. On schedule.', 3600);
+                        sfx('voidOpen'); music('anomaly', 9, 10); bed(BED.void, 8);   // the void grows while the city music winds down
+                    }
                     if (at(this, finalT + 11)) { caption('You time it. You always do.', 3800); kick(8); }
                     if (at(this, finalT + 12.6)) sfx('collapse');
-                    if (at(this, finalT + 13.2)) music('anomaly', 5);        // the void arrives before the dark does
                 }
                 // fade up from black
                 const fade = 1 - ease(t / 1.8);
@@ -592,7 +608,7 @@
         let caught = -1, gone = -1, bx = -100, by = 0, dir = 1, start = 1.4;
         return {
             name: 'bird', xfade: 1.4,
-            enter() { dir = Math.random() < 0.5 ? 1 : -1; music('anomaly', 4); },
+            enter() { dir = Math.random() < 0.5 ? 1 : -1; music('anomaly', 4); bed(BED.void, 3); },
             click(x, y) {
                 if (caught >= 0 || gone >= 0 || this.t < start) return;
                 if (Math.hypot(x - bx, y - by) < Math.max(80, W * 0.07)) {
@@ -603,6 +619,7 @@
             },
             draw(t) {
                 if (at(this, 0.6)) caption('A single pale bird crosses the empty frame.');
+                if (at(this, start - 0.9)) sfx('birdArrive', -dir * 0.8);
                 ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillRect(W / 2 - 1, H / 2 - 1, 2, 2);   // what is left
                 const p = (t - start) / 10;
                 if (caught < 0) {
@@ -632,11 +649,12 @@
         const ROWS = OPERATOR;
         return {
             name: 'registry', xfade: 1.6,
-            enter() { music('registry', 3.5); sfx('toRegistry'); },
+            enter() { music('registry', 3.5, 6); sfx('toRegistry'); bed(BED.registry, 5); },
             draw(t) {
                 if (at(this, 0.5)) caption('Shutdown accounting opens the operator registry.', 4600);
                 if (at(this, 6)) { caption('Termination, in this system, is a status. Not a stop.', 5000); sfx('ghost'); }
                 if (at(this, 10.4)) caption(`${ROWS} rows. None of them left.`, 3200);
+                if (at(this, 11)) sfx('registryOut');
                 const rh = clamp(H * 0.045, 16, 28), fs = clamp(rh * 0.55, 10, 15);
                 const top = H * 0.46 - rh * (ROWS - 1) / 2, cw = Math.min(W - 32, 520), x0 = (W - cw) / 2;
                 ctx.font = `${fs}px "Courier New",monospace`; ctx.textBaseline = 'middle';
@@ -699,11 +717,11 @@
         }
         return {
             name: 'chair', xfade: 0,
-            enter() { music('chair', 4); sfx('toChair'); },
+            enter() { music('chair', 4, 6); sfx('toChair'); bed(BED.chair, 5); },
             draw(t) {
                 if (at(this, 0.8)) caption('A room you stopped rendering twenty iterations ago.', 4400);
                 if (at(this, 5.6)) caption(ROUTE_LINES.chair[route] || ROUTE_LINES.chair[''], 5000);
-                if (at(this, 9.6)) sfx('whiteout');
+                if (at(this, 9.6)) { sfx('whiteout'); bed(BED.white, 3); }
                 const m = mon(), mx = m.x + m.w / 2, my = m.y + m.h / 2;
                 const z = lerp(1 + t * 0.006, Math.max(W / m.w, H / m.h) * 2.4, easeIn(span(t, 7, 12.4)));   // slow creep, then push in
                 ctx.save();
@@ -732,7 +750,7 @@
         };
         return {
             name: 'door', xfade: 2.2,
-            enter() { layout(); music('door', 3); sfx('toDoor'); clearCaption(); },
+            enter() { layout(); music('door', 3, 4); sfx('toDoor'); bed(BED.door, 3); clearCaption(); },
             resize: layout,
             title: () => title,
             draw(t) {
@@ -741,7 +759,7 @@
                 const open = easeOut(span(t, 4.4, 7));
                 if (at(this, 2.9)) caption('Beyond this point there is only silence.', 3600);
                 if (at(this, 3)) sfx('doorRise');
-                if (at(this, 4.4)) { sfx('open'); kick(6); }
+                if (at(this, 4.4)) { sfx('open'); kick(6); bed(BED.open, 4); }
 
                 // the white collapses from the whole screen into the doorway
                 const rx = lerp(0, d.x, shrink), ry = lerp(0, d.y, shrink), rw = lerp(W, d.w, shrink), rh = lerp(H, d.h, shrink);
@@ -801,7 +819,7 @@
             name: 'duck', xfade: 0,
             enter() {
                 dust = door.title().map(p => Object.assign({}, p));   // its own copy: the door still draws its title while it dissolves
-                music('dawn', 4); sfx('toDawn');
+                music('dawn', 5, 7); sfx('toDawn'); sfx('dust'); bed(BED.dawn, 6);
             },
             draw(t) {
                 if (at(this, 0.8)) caption('I have been here since before the terminal had a name.', 2900);
@@ -841,8 +859,8 @@
             enter(skipped) {
                 fromSkip = !!skipped;
                 clearCaption(); skipBtn.style.display = 'none';
-                music('dawn', 3);
-                if (fromSkip) sfx('toDawn');
+                music('dawn', 3, 4);
+                if (fromSkip) { sfx('toDawn'); bed(BED.dawn, 2); }
                 const rows = (opts.stats || []).map(([k, v], i) =>
                     `<div style="animation-delay:${1.2 + i * 0.15}s"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
                 uiEl.innerHTML =
