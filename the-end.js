@@ -333,31 +333,60 @@
         let clicks = 0, idle = 0, lastClickT = -9, press = 0, finalT = -1;
         let logShown = 34, fShown = 1;
 
-        function build() {
+        let builtW = 0, builtH = 0, darkR = 0;
+        function buildStars() {
             const n = Math.round(clamp(W * H / 5000, 120, 320));
             stars = [];
             for (let i = 0; i < n; i++) stars.push({ x: Math.random() * W, y: Math.random() * H * 0.78, r: rand(0.4, 1.8), tw: Math.random() * TAU, a: 1, dying: false });
-            city = [];
-            for (let x = -10; x < W + 10;) {
-                const w = rand(28, 70), h = rand(0.1, H > W ? 0.24 : 0.32) * H;   // shorter in portrait, clear of the captions
-                const cols = Math.max(2, Math.floor(w / 11)), rows = Math.floor(h / 14), win = [];
-                for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++)
-                    if (Math.random() < 0.55) win.push({ c, r, hue: Math.random() < 0.8 ? CYAN : PINK, lit: 1, off: false, blink: Math.random() < 0.04 });
-                city.push({ x, w, h, cols, win, sink: rand(0, 0.4), mast: Math.random() < 0.3 });
-                x += w + rand(2, 8);
-            }
-            motes = [];
-            for (let i = 0; i < 46; i++) motes.push({ a: Math.random() * TAU, d: rand(1.5, 2.6), v: rand(0.2, 0.6), r: rand(0.8, 2) });
+        }
+        /* THE CITY NEXUS, in two layers. The far row is paler and sparser so the
+           skyline has depth; the near row carries the neon. Buildings get a base,
+           sometimes a setback tier, and a flat, slanted or spired roof, and their
+           windows sit on one grid so rows line up across the whole block. */
+        function buildCity() {
+            const hmax = Math.min(H * (H > W ? 0.26 : 0.34), 340);
+            const layer = (far) => {
+                const out = [];
+                for (let x = rand(-40, -10); x < W + 20;) {
+                    const w = far ? rand(40, 96) : rand(30, 74);
+                    const h = (far ? rand(0.5, 1) : rand(0.26, 0.8)) * hmax;
+                    const cols = Math.max(1, Math.floor((w - 8) / 9)), rows = Math.max(1, Math.floor((h - 12) / 12));
+                    const win = [];
+                    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++)
+                        if (Math.random() < (far ? 0.22 : 0.5))
+                            win.push({ c, r, hue: far ? CYAN : (Math.random() < 0.8 ? CYAN : PINK), lit: 1, off: false, blink: Math.random() < 0.03 });
+                    const roll = Math.random();
+                    out.push({
+                        x, w, h, cols, win, far, sink: rand(0, 0.35) + (far ? 0 : 0.1),
+                        tier: roll < 0.35 ? { w: w * rand(0.45, 0.7), h: h * rand(0.12, 0.25) } : null,
+                        roof: roll > 0.8 ? 'spire' : roll > 0.6 ? 'slant' : 'flat',
+                        gx: x + (w - cols * 9) / 2 + 2.5,
+                    });
+                    x += w + (far ? rand(-12, 4) : rand(3, 10));
+                }
+                return out;
+            };
+            city = layer(true).concat(layer(false));
+            builtW = W; builtH = H;
+        }
+        function build() {
+            if (!stars.length) buildStars();
+            else stars.forEach(st => { st.x *= W / builtW; st.y *= H / builtH; });   // keep the sky, rescale it
+            buildCity();
+            darken(darkR, true);                                                      // keep the districts already dark
+            if (!motes.length) for (let i = 0; i < 46; i++) motes.push({ a: Math.random() * TAU, d: rand(1.5, 2.6), v: rand(0.2, 0.6), r: rand(0.8, 2) });
         }
         const R = () => Math.min(W, H) * 0.095;
         const btnY = () => H * 0.42;
 
-        /* District by district: a window goes out once the darkness reaches it. */
-        function darken(radius) {
+        /* District by district: a window goes out once the darkness reaches it.
+           `instant` re-applies it after a resize, with no fade. */
+        function darken(radius, instant) {
+            darkR = Math.max(darkR, radius);
             const cx = W / 2;
             for (const b of city) for (const w of b.win) {
-                const wx = b.x + (w.c + 0.5) * (b.w / b.cols);
-                if (!w.off && Math.abs(wx - cx) < radius * (0.85 + Math.random() * 0.3)) w.off = true;
+                const wx = b.gx + w.c * 9 + 2;
+                if (!w.off && Math.abs(wx - cx) < radius * (instant ? 1 : 0.85 + Math.random() * 0.3)) { w.off = true; if (instant) w.lit = 0; }
             }
         }
 
@@ -380,40 +409,56 @@
             if (clicks === NEED) { finalT = this.t; caption('0.', 1800); }
         }
 
-        function drawCity(sinkT, alpha) {
+        function outline(b, top) {
+            ctx.beginPath();
+            ctx.moveTo(b.x, H + 2); ctx.lineTo(b.x, top);
+            if (b.roof === 'slant') { ctx.lineTo(b.x + b.w * 0.6, top - b.w * 0.18); ctx.lineTo(b.x + b.w, top); }
+            else if (b.tier) {
+                const tx = b.x + (b.w - b.tier.w) / 2;
+                ctx.lineTo(tx, top); ctx.lineTo(tx, top - b.tier.h); ctx.lineTo(tx + b.tier.w, top - b.tier.h); ctx.lineTo(tx + b.tier.w, top);
+                ctx.lineTo(b.x + b.w, top);
+            } else ctx.lineTo(b.x + b.w, top);
+            ctx.lineTo(b.x + b.w, H + 2);
+        }
+        function drawCity(sinkT, alpha, t, rim) {
+            if (alpha <= 0) return;
             ctx.save();
-            const haze = ctx.createLinearGradient(0, H * 0.55, 0, H);
-            haze.addColorStop(0, `rgba(${CYAN},0)`); haze.addColorStop(1, `rgba(${CYAN},${0.12 * alpha * cityLight()})`);
-            ctx.fillStyle = haze; ctx.fillRect(0, H * 0.55, W, H * 0.45);
+            const haze = ctx.createLinearGradient(0, H * 0.5, 0, H);
+            haze.addColorStop(0, `rgba(${CYAN},0)`); haze.addColorStop(1, `rgba(${CYAN},${0.1 * alpha * _lit})`);
+            ctx.fillStyle = haze; ctx.fillRect(0, H * 0.5, W, H * 0.5);
             for (const b of city) {
-                const off = easeIn(span(sinkT, b.sink, b.sink + 0.6)) * (b.h + 30);
-                const top = H - b.h + off;
-                ctx.fillStyle = `rgba(6,10,22,${alpha})`;
-                ctx.fillRect(b.x, top, b.w, b.h);
-                ctx.strokeStyle = `rgba(${CYAN},${0.22 * alpha})`;
-                ctx.strokeRect(b.x + 0.5, top + 0.5, b.w - 1, b.h);
-                if (b.mast) {
-                    ctx.fillStyle = `rgba(6,10,22,${alpha})`; ctx.fillRect(b.x + b.w / 2 - 1, top - 14, 2, 14);
-                    const on = !b.win.every(w => w.off) && Math.sin(this.t * 3 + b.x) > 0.6;
-                    if (on) glow(b.x + b.w / 2, top - 14, 6, '255,60,60', 0.9 * alpha);
+                const drop = easeIn(span(sinkT, b.sink, b.sink + 0.55));
+                const top = H - b.h + drop * (b.h + (b.tier ? b.tier.h : 0) + 40);
+                const a = alpha * (1 - drop * 0.6);
+                // body, with a faint edge; the far row is paler, which reads as distance
+                outline(b, top);
+                ctx.fillStyle = b.far ? `rgba(16,24,44,${a})` : `rgba(5,8,18,${a})`;
+                ctx.fill();
+                ctx.strokeStyle = `rgba(${CYAN},${(b.far ? 0.1 : 0.2) * a + rim * 0.25})`;
+                ctx.lineWidth = 1; ctx.stroke();
+                if (b.roof === 'spire') {
+                    const sx = b.x + b.w / 2, sh = Math.min(40, b.h * 0.25);
+                    ctx.strokeStyle = `rgba(${b.far ? '16,24,44' : '40,52,80'},${a})`; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(sx, top); ctx.lineTo(sx, top - sh); ctx.stroke();
+                    if (_lit > 0.05 && Math.sin(t * 2.4 + b.x) > 0.55) glow(sx, top - sh, 7, '255,60,60', 0.9 * a * Math.min(1, _lit * 2));
                 }
-                const cw = b.w / b.cols;
+                // windows on the building's grid
+                const ww = b.far ? 3 : 4, wh = b.far ? 4 : 6;
                 for (const w of b.win) {
-                    if (w.off) w.lit = Math.max(0, w.lit - 0.04 - Math.random() * 0.05);
+                    if (w.off) w.lit = Math.max(0, w.lit - 0.035 - Math.random() * 0.04);
                     if (w.lit <= 0) continue;
-                    const fl = w.off && Math.random() < 0.3 ? 0.3 : w.blink ? 0.6 + 0.4 * Math.sin(this.t * 7 + w.c) : 1;
-                    ctx.fillStyle = `rgba(${w.hue},${0.8 * alpha * w.lit * fl})`;
-                    ctx.fillRect(b.x + w.c * cw + 3, top + 8 + w.r * 14, cw - 6, 6);
+                    const fl = w.off && Math.random() < 0.3 ? 0.3 : w.blink ? 0.6 + 0.4 * Math.sin(t * 7 + w.c) : 1;
+                    ctx.fillStyle = `rgba(${w.hue},${(b.far ? 0.35 : 0.8) * a * w.lit * fl})`;
+                    ctx.fillRect(b.gx + w.c * 9, top + 10 + w.r * 12, ww, wh);
                 }
             }
             ctx.restore();
         }
         let _lit = 1;
-        function cityLight() { return _lit; }
 
         return {
             name: 'lastclick', xfade: 1.2,
-            resize: build,
+            resize() { if (builtW) build(); },
             enter() { build(); music('spend', 3); caption('One purchase left. Spend it.'); },
             click() { if (this.t > 1.2) spend.call(this); },
             draw(t, dt) {
@@ -445,7 +490,8 @@
                 // city: already there; after the last click the darkness spreads to the edges
                 if (k >= 0) darken(W * 0.3 + easeIn(span(k, 1.6, 7)) * W * 0.4);
                 _lit = 1 - (k < 0 ? clicks / NEED * 0.5 : 0.5 + span(k, 1.6, 7) * 0.5);
-                drawCity.call(this, k < 0 ? 0 : span(k, 9, 15), 1 - (k < 0 ? 0 : span(k, 13, 15.5)));
+                const core = k < 0 ? 0 : span(k, 5, 12) * (1 - span(k, 14.5, 16));
+                drawCity(k < 0 ? 0 : span(k, 9, 15), 1 - (k < 0 ? 0 : span(k, 13, 15.5)), t, core);
 
                 // the button
                 press = Math.max(0, press - dt * 5);
@@ -518,7 +564,6 @@
                 fx.draw(k > 5 ? pull * 1.6 : 0, cx, H / 2);
 
                 // the singularity, then one point of light
-                const core = k < 0 ? 0 : span(k, 5, 12) * (1 - span(k, 14.5, 16));
                 if (core > 0) {
                     glow(cx, H / 2, 40 + core * 120, CYAN, 0.5 * core);
                     ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(cx, H / 2, 6 + core * 18, 0, TAU); ctx.fill();
@@ -531,6 +576,7 @@
                     if (at(this, finalT + 6.8)) caption('The suns go out. On schedule.', 3600);
                     if (at(this, finalT + 11)) { caption('You time it. You always do.', 3800); kick(8); }
                     if (at(this, finalT + 12.6)) sfx('collapse');
+                    if (at(this, finalT + 13.2)) music('anomaly', 5);        // the void arrives before the dark does
                 }
                 // fade up from black
                 const fade = 1 - ease(t / 1.8);
@@ -546,7 +592,7 @@
         let caught = -1, gone = -1, bx = -100, by = 0, dir = 1, start = 1.4;
         return {
             name: 'bird', xfade: 1.4,
-            enter() { dir = Math.random() < 0.5 ? 1 : -1; music('anomaly', 3); },
+            enter() { dir = Math.random() < 0.5 ? 1 : -1; music('anomaly', 4); },
             click(x, y) {
                 if (caught >= 0 || gone >= 0 || this.t < start) return;
                 if (Math.hypot(x - bx, y - by) < Math.max(80, W * 0.07)) {
@@ -569,6 +615,9 @@
                 if (p > 0) {
                     const flap = caught >= 0 && t - caught < 2.6 ? t * 5 : t * 9;
                     drawBird(bx, by, Math.min(W, H) / 460, flap, Math.min(1, p * 8));
+                    const up = Math.sin(flap) > 0;                  // a soft wingbeat on each downstroke, panned with the bird
+                    if (up && !this.wasUp && bx > -20 && bx < W + 20) sfx('flap', clamp((bx / W) * 2 - 1, -0.9, 0.9));
+                    this.wasUp = up;
                     if (Math.random() < 0.3) fx.add({ x: bx, y: by, vx: -dir * 0.5, vy: 0.3, life: 0.7, decay: 0.012, r: 1.4 });
                 }
                 fx.draw();
@@ -583,7 +632,7 @@
         const ROWS = OPERATOR;
         return {
             name: 'registry', xfade: 1.6,
-            enter() { music('registry', 2.5); },
+            enter() { music('registry', 3.5); sfx('toRegistry'); },
             draw(t) {
                 if (at(this, 0.5)) caption('Shutdown accounting opens the operator registry.', 4600);
                 if (at(this, 6)) { caption('Termination, in this system, is a status. Not a stop.', 5000); sfx('ghost'); }
@@ -650,7 +699,7 @@
         }
         return {
             name: 'chair', xfade: 0,
-            enter() { music('chair', 3); },
+            enter() { music('chair', 4); sfx('toChair'); },
             draw(t) {
                 if (at(this, 0.8)) caption('A room you stopped rendering twenty iterations ago.', 4400);
                 if (at(this, 5.6)) caption(ROUTE_LINES.chair[route] || ROUTE_LINES.chair[''], 5000);
@@ -683,7 +732,7 @@
         };
         return {
             name: 'door', xfade: 2.2,
-            enter() { layout(); music('door', 2); clearCaption(); },
+            enter() { layout(); music('door', 3); sfx('toDoor'); clearCaption(); },
             resize: layout,
             title: () => title,
             draw(t) {
@@ -752,7 +801,7 @@
             name: 'duck', xfade: 0,
             enter() {
                 dust = door.title().map(p => Object.assign({}, p));   // its own copy: the door still draws its title while it dissolves
-                music('dawn', 4);
+                music('dawn', 4); sfx('toDawn');
             },
             draw(t) {
                 if (at(this, 0.8)) caption('I have been here since before the terminal had a name.', 2900);
@@ -793,6 +842,7 @@
                 fromSkip = !!skipped;
                 clearCaption(); skipBtn.style.display = 'none';
                 music('dawn', 3);
+                if (fromSkip) sfx('toDawn');
                 const rows = (opts.stats || []).map(([k, v], i) =>
                     `<div style="animation-delay:${1.2 + i * 0.15}s"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
                 uiEl.innerHTML =
@@ -885,7 +935,8 @@
 
     function finish(action) {
         uiEl.classList.remove('on');
-        if (score) score.fadeOut(3.5);
+        sfx(action === 'rest' ? 'rest' : 'toDawn');
+        if (score) score.fadeOut(4);
         caption(action === 'rest' ? 'You may rest now.' : `Cycle ${OPERATOR + 1}. The chair is still warm.`);
         root.style.transition = 'opacity 2.4s';
         setTimeout(() => { if (root) root.style.opacity = '0'; }, 1600);

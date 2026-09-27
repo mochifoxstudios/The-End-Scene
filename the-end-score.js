@@ -16,11 +16,16 @@
    Cues (one per scene, crossfaded, never cut):
      spend    D minor, 56   drone, endgame chords, a clock, a heartbeat
      unmake   E minor, 112  the City Nexus arpeggiator running down
-     anomaly  A drone, 60   near-silence, glass bells, breath
+     anomaly  A drone, 60   the void and the bird: drone, wind, a far thump,
+                            a thin voice slipping flat, glass, breath
      registry C, 96         printer ticks; a cluster when the rows flip
      chair    D minor, 64   a loop that wears out; the body's heartbeat
      door     D, 56         held breath, then choir and bells
      dawn     D major, 78   the motif resolves
+
+   Every scene change also lands on its own transition sound (toRegistry,
+   toChair, toDoor, toDawn) under the crossfade, and the void cue starts
+   before the screen goes dark, so there is no silent gap.
    ══════════════════════════════════════════════════════════════════════════ */
 (function () {
     'use strict';
@@ -334,16 +339,19 @@
                     const k = clamp(a / 14, 0, 1);
                     const cd = [0, 5, 2, 6][(bar >> 1) % 4];
                     const arp = [0, 2, 4, 7, 4, 2, 0, 2, 4, 7, 9, 7, 4, 2, 4, 7];
-                    const sag = -k * k * 700;
+                    const sag = -k * k * 700, fadeIn = Math.min(1, a / 1.2);
                     if (!P.chance(k * 0.95))
-                        P.tone(t, M(dg(R + 24, sc, cd + arp[pos])), 0.11, { type: 'sawtooth', lp: 3200 * (1 - k) + 240, fenv: 3600 * (1 - k) + 300, ft: 0.08, vol: 0.05, rev: 0.25, echo: 0.25, det: sag, pan: pos % 2 ? 0.28 : -0.28 });
-                    if (pos % 4 === 0 && a < 7) P.kick(t, { vol: 0.42 * (1 - a / 7), f0: 140, f1: 46 });
+                        P.tone(t, M(dg(R + 24, sc, cd + arp[pos])), 0.11, { type: 'sawtooth', lp: 3200 * (1 - k) + 240, fenv: 3600 * (1 - k) + 300, ft: 0.08, vol: 0.05 * fadeIn, rev: 0.25, echo: 0.25, det: sag, pan: pos % 2 ? 0.28 : -0.28 });
+                    if (pos % 4 === 0 && a < 7) P.kick(t, { vol: 0.42 * (1 - a / 7) * fadeIn, f0: 140, f1: 46 });
                     if (pos % 2 === 0 && a < 10) P.tone(t, M(dg(R, sc, cd) + (pos % 4 === 2 ? 12 : 0)), 0.13, { type: 'sawtooth', lp: 520, vol: 0.12 * (1 - a / 10), rev: 0, det: sag });
                     if (pos === 0 && bar % 2 === 0 && a < 11) P.pad(t, triad(R + 12, sc, cd), P.sd * 32, { lp: 700, vol: 0.05, a: 0.6, det: sag });
                     if (pos === 0 && bar % 4 === 0 && a > 6) P.tone(t, M(28), P.sd * 64, { type: 'sawtooth', lp: 180, sus: true, a: 2, r: 2, vol: 0.14, rev: 0.4 });
                 },
             },
-            /* THE LAST ANOMALY. Almost nothing: a beating drone, glass, breath. */
+            /* THE VOID and THE LAST ANOMALY. It starts while the last of the sky
+               is being pulled in and carries on under the bird: a beating drone,
+               wind that moves from ear to ear, a far thump, a thin voice singing
+               one note that slips flat, glass, breath. Quiet, and never empty. */
             anomaly: {
                 bpm: 60, echoSteps: 6,
                 step(P, s, t) {
@@ -352,8 +360,13 @@
                         P.tone(t, M(33), P.sd * 64, { sus: true, a: 2.5, r: 2.5, vol: 0.12 });
                         P.tone(t, M(45) + 0.7, P.sd * 64, { sus: true, a: 3, r: 2.5, vol: 0.04 });
                     }
-                    if (pos === 0 && bar % 2 === 1) P.noise(t, P.sd * 8, { f: 600, f2: 1400, q: 0.8, sus: true, a: P.sd * 4, r: 0.8, vol: 0.018 });
-                    if (P.chance(0.05)) P.bell(t, M(dg(81, SC.penta, P.pick([0, 1, 2, 3, 4]))), 3, { ratio: 2.76, idx: 1.2, vol: 0.03, rev: 0.8, echo: 0.45, pan: P.rnd() * 1.6 - 0.8 });
+                    if (pos === 0 && bar % 2 === 0)
+                        P.noise(t, P.sd * 10, { f: 280, f2: 900, ft: P.sd * 10, q: 3, sus: true, a: P.sd * 5, r: P.sd * 6, vol: 0.022, pan: bar % 4 ? 0.7 : -0.7, rev: 0.5 });
+                    if (pos === 8 && bar % 4 === 2)
+                        P.tone(t, M(P.pick([88, 91, 93])), P.sd * 20, { sus: true, a: 2, r: 2, vol: 0.013, vib: [0.35, 22], glide: 0.97, gt: P.sd * 20, rev: 0.8, echo: 0.4 });
+                    if (pos === 0 && bar % 8 === 1) P.kick(t, { f0: 52, f1: 28, pd: 0.3, d: 3, vol: 0.16, click: false, rev: 0.9 });
+                    if (pos === 0 && bar % 2 === 1) P.noise(t, P.sd * 8, { f: 600, f2: 1400, q: 0.8, sus: true, a: P.sd * 4, r: 0.8, vol: 0.016 });
+                    if (P.chance(0.04)) P.bell(t, M(dg(81, SC.penta, P.pick([0, 1, 2, 3, 4]))), 3, { ratio: 2.76, idx: 1.2, vol: 0.028, rev: 0.8, echo: 0.45, pan: P.rnd() * 1.6 - 0.8 });
                 },
             },
             /* THE REGISTRY. A ledger printing, then a cluster when "terminated"
@@ -469,6 +482,25 @@
                 swell(FX, t, 1.2, [62, 69, 74], { vol: 0.08 });
                 [74, 78, 81, 86].forEach(n => bell(FX, t + 1.2, M(n), 2.6, { ratio: 3.5, idx: 1.5, vol: 0.045, rev: 0.8, echo: 0.3 }));
             },
+            /* Scene transitions: each scene arrives on its own sound, under the crossfade. */
+            toRegistry(t) {
+                for (let k = 0; k < 8; k++) wood(FX, t + k * 0.06, 2600 - k * 140, { vol: 0.018, rev: 0.3, pan: k % 2 ? 0.5 : -0.5 });
+                swell(FX, t, 1.4, [60, 61, 67], { vol: 0.05, lp: 900 });
+            },
+            toChair(t) {
+                tone(FX, t, M(62), 1.6, { type: 'triangle', lp: 1200, sus: true, a: 0.05, r: 0.6, glide: 0.5, gt: 1.6, vol: 0.05, rev: 0.6 });
+                noise(FX, t, 1.8, { type: 'lowpass', f: 1400, f2: 150, vol: 0.05, rev: 0.6 });
+            },
+            toDoor(t) {
+                noise(FX, t, 3, { type: 'lowpass', f: 8000, f2: 300, vol: 0.07, rev: 0.9 });
+                bell(FX, t + 0.4, M(86), 3, { ratio: 3.5, idx: 1, vol: 0.03, rev: 0.9, echo: 0.3 });
+            },
+            toDawn(t) {
+                [74, 78, 81, 86, 90].forEach((n, i) => bell(FX, t + 0.3 + i * 0.09, M(n), 2.2, { ratio: 2, idx: 1, vol: 0.035, rev: 0.7, echo: 0.3 }));
+                swell(FX, t, 1.8, [62, 66, 69], { vol: 0.06, lp: 1400 });
+            },
+            flap(t, pan) { noise(FX, t, 0.14, { type: 'bandpass', f: 520, f2: 240, q: 1.2, vol: 0.03, pan: pan || 0, rev: 0.35 }); },
+            rest(t) { [62, 74, 81].forEach((n, i) => bell(FX, t + i * 0.25, M(n), 4, { ratio: 2, idx: 0.8, vol: 0.05, rev: 0.9, echo: 0.3 })); },
             quack(t, v) { tone(FX, t, M(57), 0.16, { type: 'sawtooth', bp: 1400, fenv: 700, ft: 0.06, q: 5, glide: 0.82, vol: v || 0.22, rev: 0.25 }); },
             coin(t, i) {
                 const n = [74, 78, 81, 86, 90][i % 5];
